@@ -11,7 +11,7 @@
 # Stroke detection has become increasingly 
 # important in trying to find factors that predict a stroke before it even happens. 
 # By performing data exploration, feature engineering, and machine learning modeling
-# on a dataset containing many records of 11 key features the could predict stroke
+# on a dataset containing many records of 10 key features the could predict stroke
 # events, we hope to produce a machine learning model for predicting stroke events
 # early to help curtail preventable deaths and ailments caused by stroke.
 
@@ -34,25 +34,23 @@ from sklearn import tree
 from sklearn.ensemble import RandomForestClassifier
 from sklearn import decomposition
 
+# %% [markdown]
+# # Data Cleaning, Preparation, and Initial Feature Engineering
 
 # %%
-# read in data
 raw_data = pd.read_csv("healthcare-dataset-stroke-data.csv")
-raw_data = raw_data.drop("id", axis=1) # TODO comment on removing the ids
+raw_data = raw_data.drop("id", axis=1)
 raw_data.shape
 
 # %% [markdown]
-# ## Data Cleaning and Preparation
-
-# %% [markdown]
 # Here we can see the first 10 records in our raw dataset prior to any data 
-# cleaning or feature engineering. 
+# cleaning or feature engineering. Note that we threw out the ID column when we read in the data.
 
 # %% 
 raw_data.head(10)
 
 # %% [markdown]
-# ### Missing Values
+# ## Missing Values
 
 # %% [markdown]
 # Before we are able to model stroke, we have to clean our data first.
@@ -60,8 +58,14 @@ raw_data.head(10)
 # We must handle these values by either removing them or imputing them.
 # Let's first explore the `smoking_status` column.
 
+# %% [markdown]
+# ### Smoking Status `Unknowns`
+
+# %% [markdown]
+# The missing value is labeled as "Unknown". We will need to look at the distribution of all
+# of the labels before we are able to do anything.
+
 # %%
-# printing shape of smoking status distribution as a pie graph
 def get_count(df, col, val) :
   return df[df[col] == val].shape[0]
 
@@ -76,24 +80,53 @@ plt.title("Smoking Status Distribution")
 plt.pie(smk_cnt, labels = smk_lables, autopct='%1.1f%%')
 plt.show()
 
-# %%
-# dropping records with "Unknown" in smoking status field
-dropped_data = raw_data[raw_data.smoking_status != "Unknown"]
-print("After removing the records with \"Unkown\" as their smoking status, we are left with", dropped_data.shape[0], "records.")
-# TODO justify why we are dropping the Unknowns (30% of the data)
 # %% [markdown]
-# #### BMI NaNs TODO move after smoking status
-# One natural question to ask is to figure out what proportion of the entries has a NaN in `bmi`.
+# Since over 30% of the data has an "unknown" smoking status, attempting to impute these values will be
+# a significant challenge. Smoking is a [well-known](https://www.cdc.gov/tobacco/campaign/tips/diseases/heart-disease-stroke.html)
+# stroke risk, and since this data is categorical, imputing these values may end up heavily
+# biasing the data toward smokers/non-smokers.
+# 
+# We also are unable to ascertain where and how this data was collected, which would have informed us
+# on how to handle this data with more certainty.
+#
+# In a non-coursework setting, we would be spending significant amounts of time on trying different feature engineering
+# techniques to handle this data. However, for the purposes of this project, we decided to move forward
+# by simply dropping the unknown records. We still have thousands of other records to rely on.
+# 
+
+# TODO (optional?) we can display summary statistics/distribution before and after dropping.
+
+# %%
+dropped_data = raw_data[raw_data.smoking_status != "Unknown"]
+print("After removing the records with \"Unknown\" as their smoking status, we are left with", dropped_data.shape[0], "records.")
+
+# %% [markdown]
+# #### Integer Encoding for `smoking_status`
+
+# %% [markdown]
+# Now that we have dropped the unknown data, we are now left with 3 labels: `smokes`, `formerly smoked`, and 
+# `never smoked`. These three labels have an ordinal property to them, where `never smoked` is "better than"
+# `formerly smoked`, which is "better than" `smokes`. To encode this property into our data,
+# we will replace these values with 0, 1, and 2, respectively, creating a smoking metric where the higher value
+# indicates a "worse smoking habit".
+# 
+# While this encodes that ordinal property, it subtly implies that `smokes`, `formerly smoked`, and `never smoked`
+# are only "different" from each other on this metric by 1. `smokes` is only "2-worse" than `never smoked`, and
+# `formerly smoked` is exactly the midpoint between `smokes` and `never smoked`.
+#
+# This is yet another area we could explore in the feature-engineering iteration process, assigning different
+# values to each label and seeing how they affect the labels. Of course, this only affects models that are
+# distance-based, like K-Nearest Neighbors and Neural Networks. This should not affect models like Decision Trees.
 
 # %% 
-# changing categorical representation of smoking status into numerical type
-# smokes -> 2, formerly smoked -> 1, never smoked ->0
-dropped_data['smoking_status'] = dropped_data['smoking_status'].replace(["smokes"], "2")
-dropped_data['smoking_status'] = dropped_data['smoking_status'].replace(["never smoked"], "0")
-dropped_data['smoking_status'] = dropped_data['smoking_status'].replace(["formerly smoked"], "1")
+dropped_data.loc[:, 'smoking_status'] = dropped_data.loc[:, 'smoking_status'].replace(["smokes"], 2)
+dropped_data.loc[:, 'smoking_status'] = dropped_data.loc[:,'smoking_status'].replace(["formerly smoked"], 1)
+dropped_data.loc[:, 'smoking_status'] = dropped_data.loc[:,'smoking_status'].replace(["never smoked"], 0)
 
+# %% [markdown]
+# ### BMI NaNs
+# One natural question to ask is to figure out what proportion of the entries has a NaN in `bmi`.
 # %%
-# TODO change to the data after unknowns are removed
 num_bmi_nan = dropped_data["bmi"].isnull().sum()
 total_entries = len(dropped_data.index)
 num_bmi_nan / total_entries * 100
@@ -106,9 +139,10 @@ num_bmi_nan / total_entries * 100
 # 
 # How many of the missing values are classified as stroke patients compared to non-stroke patients?
 
+# %%
+# TODO what to do with this commented line?.... vvvv
 # raw_data.drop(raw_data[raw_data['smoking_status'] == "Unknown"].index, inplace = True)
 
-# %%
 raw_stroke_bmi_data = dropped_data[dropped_data["stroke"] == 1]["bmi"]
 raw_nonstroke_bmi_data = dropped_data[dropped_data["stroke"] == 0]["bmi"]
 
@@ -157,7 +191,17 @@ ax2.boxplot(raw_nonstroke_bmi_data[~np.isnan(raw_nonstroke_bmi_data)])
 # The histograms and boxplots shows that the data seems to be partially right-skewed.
 # Using the mean for imputation may lead to less-than-ideal results. Thus, we shall use
 # the median to impute the missing BMI values.
-
+#
+# Since only 3.5% of the non-stroke patients have a NaN BMI, imputing the NaNs for the BMI
+# before we run nested cross-validations should not affect the overall performance of the models,
+# despite the data leakage. However, with 10.9% of the stroke-patients having NaN BMIs, this would
+# be a significant instance of data leakage.
+# 
+# For the purposes of this project, we opted to impute the data before we split the training and test
+# data sets (see Piazza Post @395). Additionally, as you will see below, the median for both stroke and
+# non-stroke patients end up being rather close, so the data leakage should not affect it too badly.
+# Had we used the mean, we could not have gone away with this and would have had to resort to
+# manual cross-validation and imputation.
 # %%
 stroke_median = raw_stroke_bmi_data.median()
 nonstroke_median = raw_nonstroke_bmi_data.median()
@@ -166,57 +210,108 @@ print("BMI Median for Nonstroke Patients: ", nonstroke_median)
 
 imputed_stroke_data = dropped_data[dropped_data["stroke"] == 1].fillna(stroke_median)
 imputed_nonstroke_data = dropped_data[dropped_data["stroke"] == 0].fillna(nonstroke_median)
-data = pd.concat([imputed_stroke_data, imputed_nonstroke_data])
-data.head(10)
-
-# %%
-# TODO print out unique values of smoking status
-# TODO print out unique values of the other categories (binary and multi-type) when we are preparing it
-
-# TODO after cleaning, compute correlation to find potentially irrelevant features
+imputed_data = pd.concat([imputed_stroke_data, imputed_nonstroke_data])
+imputed_data.head(10)
 
 # %% [markdown]
-# We begin by looking at the number of missing values there are in the dataset.
-
-# %%
-raw_data.isnull().sum()
+# ## One-Hot Encoding
 
 # %% [markdown]
-# Let us observe the distribution of the data before and after we drop the null values in the BMI column.
+# Since we are performing various different types of modeling, where some cannot handle categorical data types,
+# we will be doing one-hot encoding on the categorical features.
+
+# %% [markdown]
+# ### Binary Features
 
 # %%
-dropped_data = raw_data.dropna(axis=0, subset="bmi") # TODO 
+print(imputed_data["ever_married"].unique())
+print(imputed_data["Residence_type"].unique())
+
+# %% [markdown]
+# `ever_married`, and `Residence_type` are both binary categorical features. We can use Pandas'
+# `get_dummies()` function with `drop_first = True` to limit the dimensionality.
 
 # %%
-# distribution of stroke label before and after
-raw_stroke_counts = raw_data.loc[:, "stroke"].value_counts()
-dropped_stroke_counts = dropped_data.loc[:, "stroke"].value_counts()
+# The features and class columns are separately handled due to sklearn's API.
+binary_data_X = pd.get_dummies(imputed_data.iloc[:, :10], columns=["ever_married", "Residence_type"], drop_first=True)
+binary_data_X.head()
 
-print(raw_stroke_counts[0] / raw_stroke_counts[1])
-print(dropped_stroke_counts[0] / dropped_stroke_counts[1])
-
-# %%
-raw_hyper_counts = raw_data.loc[:, "hypertension"].value_counts()
-dropped_hyper_counts = dropped_data.loc[:, "hypertension"].value_counts()
-
-print(raw_hyper_counts[0] / raw_hyper_counts[1])
-print(dropped_hyper_counts[0] / dropped_hyper_counts[1])
-
+# %% [markdown]
+# ### Non-binary Features
 
 # %%
-raw_data.loc[:, "smoking_status"].value_counts().plot(kind="bar", title="Distribution of Smoking Status Before Dropped Data")
+# TODO consider dropping the gender_other column, since gender identity probably doesn't affect much in the way
+# TODO of stroke prediction. also, there are very few gender_others.
+print(binary_data_X["gender"].unique()) 
+print(binary_data_X["work_type"].unique())
+
+# %% [markdown]
+# Since `gender` and `work_type` are not binary features, we can use the same function, but with
+# `drop_first = False`.
 
 # %%
-dropped_data.loc[:, "smoking_status"].value_counts().plot(kind="bar", title="Distribution of Smoking Status After Dropped Data")
+data_X = pd.get_dummies(binary_data_X, columns=["gender", "work_type"], drop_first=False)
+data_Y = imputed_data.iloc[:, 10].values.ravel()
+data = pd.concat([data_X, imputed_data.iloc[:, 10]], axis=1)
+
+# %% [markdown]
+# ## Additional Data Exploration
+
+# %% [markdown]
+# Now that the data has been cleaned, we can look at some of its features and think of potential
+# additional feature engineering techniques.
+
+# %% [markdown]
+# ### Correlation and Scatter Matrix for Age, Glucose Level, BMI, and Stroke
+
+# %% [markdown]
+# These features are originally numeric, not categorical or binary.
 
 # %%
-binary_data_x = pd.get_dummies(dropped_data.iloc[:, :10], columns=["ever_married", "Residence_type"], drop_first=True)
-data_X = pd.get_dummies(binary_data_x, columns=["gender", "work_type", "smoking_status"])
-data_Y = dropped_data.iloc[:, 10].values.ravel()
+print(data.iloc[:, [0, 3, 4, 16]].corr())
+pd.plotting.scatter_matrix(data.iloc[:, [0, 3, 4, 16]], figsize=(15, 15))
 
+# %% [markdown]
+# None of these features have a strong correlation with one another, so we cannot justify dropping one of
+# these features.
+# TODO comment on the scatter matrix. Cite how age and blood sugar changes together, and the data doesn't show that
+# TODO which then implies that the blood sugar was taken at random times...
+
+# %% [markdown]
+# ### Correlation in Gender and Stroke
 
 # %%
+print(data.iloc[:, [8, 9, 10, 16]].corr())
 
+# %% [markdown]
+# As seen above, the `gender_Female` and `gender_Male` features obviously have strong negative correlation
+# with each other. However, we should not necessarily drop one or the other. Women appear to have a
+# [higher risk](https://www.ahajournals.org/doi/10.1161/CIRCRESAHA.121.319915#:~:text=In%20the%20United%20States%2C%20the,55%2Dyear%2Dold%20individual.&text=Stroke%20is%20more%20likely%20to,heart%20disease%20is%20more%20common.)
+# of having a stroke than men. Of course, the features list "gender" and not "sex", but people who do not
+# conform to gender norms often experience [higher levels of stress](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4201643/)
+# and stress is a [known risk factor for stroke](https://health.clevelandclinic.org/stressed-work-may-higher-risk-stroke/).
+#
+# Thus, treating each gender label in this data separately, at least initially, seems to be a good idea.
+
+# %% [markdown]
+# ### Correlation of Work Types, Residences, and Stroke
+
+# %%
+print(data.iloc[:, [7, 11, 12, 13, 14, 15, 16]].corr())
+
+# %% [markdown]
+# Based on the correlation matrix above, there are 2 feature pairs that are moderately correlated
+# with one another. `private` sector jobs appear to share decent correlations with `government` and `self-employment`.
+# One option to reduce the dimensionality of the data set would have been to group some of these features together.
+# However, this is probably not a great idea since, like the stress cited before, [work stress](https://www.aan.com/PressRoom/Home/PressRelease/1412)
+# is also a known risk factor for strokes. Different work types have different levels of stress, so
+# combining them would be bad for the data.
+#
+# We could attempt to group these features by varying levels of "work stress", but these work types are too broad
+# to reasonably group them like that.
+
+# %% [markdown]
+# # Modeling
 
 # %%
 scaler = StandardScaler()
